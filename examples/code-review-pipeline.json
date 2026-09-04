@@ -1,0 +1,18 @@
+{
+  "name": "Code Review Pipeline",
+  "description": "A starter multi-model code review flow.",
+  "graph": {
+    "version": 1,
+    "nodes": [
+      {"id":"input","type":"textInput","position":{"x":0,"y":100},"data":{"label":"CODE INPUT","text":"Paste code or requirements here."}},
+      {"id":"planner","type":"llm","position":{"x":300,"y":80},"data":{"label":"12B PLANNER","model":"gemma-4-12b","systemPrompt":"Extract requirements and propose a concise implementation plan.","temperature":0.2,"max_tokens":2048}},
+      {"id":"reviewer","type":"llm","position":{"x":610,"y":80},"data":{"label":"26B REVIEWER","model":"gemma-4-26b-a4b","systemPrompt":"Review the proposed plan critically. Identify risks and corrections.","temperature":0.2,"max_tokens":4096}},
+      {"id":"output","type":"output","position":{"x":920,"y":100},"data":{"label":"OUTPUT"}}
+    ],
+    "edges": [
+      {"id":"e1","source":"input","target":"planner","targetHandle":"prompt"},
+      {"id":"e2","source":"planner","target":"reviewer","targetHandle":"prompt"},
+      {"id":"e3","source":"reviewer","target":"output","targetHandle":"text"}
+    ]
+  }
+}

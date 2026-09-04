@@ -1,0 +1,15 @@
+services:
+  node-ai:
+    build: .
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      LLM_API_BASE_URL: ${LLM_API_BASE_URL}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      DATABASE_URL: /app/data/workflows.db
+      DEBUG: ${DEBUG:-false}
+    volumes:
+      - node_ai_data:/app/data
+    restart: unless-stopped
+volumes:
+  node_ai_data:
