@@ -458,12 +458,11 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
                     <div
                       key={input.id}
                       style={{
-                        position: "relative",
                         display: "flex",
                         alignItems: "center",
                         gap: 6,
                         minHeight: 24,
-                        paddingLeft: 14,
+                        position: "relative",
                       }}
                     >
                       <Handle
@@ -472,7 +471,7 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
                         id={input.name}
                         style={{
                           ...HANDLE_STYLE,
-                          left: -4,
+                          left: -31,
                           top: "50%",
                           transform: "translateY(-50%)",
                         }}
