@@ -1,5 +1,6 @@
 """Constrained project-file operations for the lightweight workspace."""
 from pathlib import Path
+import shutil
 from backend.config import settings
 
 ROOT = Path(settings.project_root).resolve()
@@ -29,6 +30,7 @@ def write_project_file(path: str, content: str):
     item = _path(path); item.parent.mkdir(parents=True, exist_ok=True); item.write_text(content, encoding="utf-8")
 def delete_project_file(path: str):
     item = _path(path)
-    if item.is_dir(): item.rmdir()
+    if item == ROOT: raise ValueError("The active project root cannot be deleted.")
+    if item.is_dir(): shutil.rmtree(item)
     else: item.unlink()
 def move_project_file(source: str, target: str): _path(source).rename(_path(target))
