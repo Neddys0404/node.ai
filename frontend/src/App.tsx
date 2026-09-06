@@ -170,6 +170,12 @@ const safeJson = async (r: Response) => {
   return text ? JSON.parse(text) : {};
 };
 
+function createInputId() {
+  return `input_${Date.now()}_${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+}
+
 // VSCode-style file type icons
 function FileIcon({ name }: { name: string }) {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
@@ -427,7 +433,7 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
                         inputs: [
                           ...currentInputs,
                           {
-                            id: crypto.randomUUID(),
+                            id: createInputId(),
                             name: newName,
                           },
                         ],
