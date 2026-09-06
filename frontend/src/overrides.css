@@ -8,3 +8,6 @@ main{grid-template-columns:44px 1fr!important}main>header,main>footer{grid-colum
 
 /* The status remains in the footer too; this is the immediate local save cue. */
 .editor>button:focus::after{content:' ✓ Saved';color:#69d2a5;font-weight:700;margin-left:7px;white-space:nowrap}.editor>button:focus{overflow:visible}
+
+/* Empty sampling fields mean no override is sent; the runtime uses the server default. */
+.num{position:relative}.num:has(input[value=""])::after{content:"Server's Default";position:absolute;left:7px;right:7px;bottom:5px;color:#8290a2;font-size:10px;pointer-events:none}
