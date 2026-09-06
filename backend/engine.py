@@ -80,7 +80,18 @@ async def execute(graph: WorkflowGraph):
                 config = node.data; profile = db.get_provider(config.get("provider", "")) if config.get("provider") else None
                 if config.get("provider") and not profile: raise WorkflowError(f"Provider '{config['provider']}' no longer exists.")
                 model = profile["model_id"] if profile else config.get("model", "")
-                result, usage = await chat({"model": model, "messages": [{"role":"system","content":config.get("systemPrompt", "")}, {"role":"user","content":str(prompt)}], **{key: config[key] for key in ("temperature","top_p","top_k","min_p","repetition_penalty","presence_penalty","max_tokens") if key in config}}, profile)
+                # OpenAI-compatible Chat Completions uses max_tokens. Normalize UI
+                # values here so an edited number is never silently dropped.
+                options = {key: config[key] for key in ("temperature", "top_p", "presence_penalty") if key in config}
+                raw_max_tokens = config.get("max_tokens", config.get("maxTokens"))
+                if raw_max_tokens not in (None, ""):
+                    try:
+                        max_tokens = int(raw_max_tokens)
+                        if max_tokens <= 0: raise ValueError
+                        options["max_tokens"] = max_tokens
+                    except (TypeError, ValueError):
+                        raise WorkflowError("Max tokens must be a positive whole number.")
+                result, usage = await chat({"model": model, "messages": [{"role":"system","content":config.get("systemPrompt", "")}, {"role":"user","content":str(prompt)}], **options}, profile)
                 states[node_id]["provider"] = profile["alias"] if profile else "Default"
                 states[node_id]["model"] = model
                 if usage: states[node_id]["usage"] = usage
