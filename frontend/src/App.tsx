@@ -16,6 +16,7 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useUpdateNodeInternals,
   type Connection,
   type Node,
   type NodeProps,
@@ -222,6 +223,7 @@ const statusColor = (state: string) => {
 
 function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string }) {
   const { setEdges } = useReactFlow();
+  const updateNodeInternals = useUpdateNodeInternals();
 
   const [sysOpen, setSysOpen] = useState(false);
   const set = (p: any) => data.onChange?.(id, p);
@@ -409,7 +411,6 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
                         ? data.inputs
                         : [];
 
-                      // Find the first unused input_N name.
                       let index = 1;
                       let newName = `input_${index}`;
 
@@ -426,9 +427,14 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
                         inputs: [
                           ...currentInputs,
                           {
+                            id: crypto.randomUUID(),
                             name: newName,
                           },
                         ],
+                      });
+
+                      requestAnimationFrame(() => {
+                        updateNodeInternals(id);
                       });
                     }}
                     style={{
@@ -442,71 +448,54 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
 
                 {/* Dynamic inputs */}
                 {(Array.isArray(data.inputs) ? data.inputs : []).map(
-                  (input: { name: string }, idx: number) => (
+                  (input: { id: string; name: string }, idx: number) => (
                     <div
-                      key={`${input.name}-${idx}`}
+                      key={input.id}
                       style={{
                         position: "relative",
                         display: "flex",
                         alignItems: "center",
                         gap: 6,
                         minHeight: 24,
+                        paddingLeft: 14,
                       }}
                     >
-                      {/* Target handle */}
                       <Handle
                         type="target"
                         position={Position.Left}
                         id={input.name}
                         style={{
                           ...HANDLE_STYLE,
+                          left: -4,
                           top: "50%",
                           transform: "translateY(-50%)",
                         }}
                       />
 
-                      {/* Input name */}
                       <input
                         className="nodrag"
                         value={input.name}
                         onChange={(e) => {
+                          const newName = e.target.value;
+
+                          // Allow the user to edit naturally.
+                          // Validation can happen on blur/Enter.
                           const oldName = input.name;
-                          const newName = e.target.value.trim();
 
-                          // Don't allow empty names.
-                          if (!newName) {
-                            return;
-                          }
-
-                          // Only allow safe handle / variable names.
-                          if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(newName)) {
-                            return;
-                          }
-
-                          // Prevent duplicate names.
-                          const duplicate = (data.inputs || []).some(
-                            (other: { name: string }, otherIdx: number) =>
-                              otherIdx !== idx && other.name === newName
-                          );
-
-                          if (duplicate) {
-                            return;
-                          }
-
-                          // Update Template input definition.
-                          const newInputs = (data.inputs || []).map(
-                            (item: { name: string }, itemIdx: number) =>
-                              itemIdx === idx
+                          const newInputs = data.inputs.map(
+                            (item: { id: string; name: string }) =>
+                              item.id === input.id
                                 ? { ...item, name: newName }
-                                : { ...item }
+                                : item
                           );
 
-                          set({
-                            inputs: newInputs,
-                          });
+                          set({ inputs: newInputs });
 
-                          // Keep existing edges connected after rename.
-                          if (oldName !== newName) {
+                          if (
+                            oldName !== newName &&
+                            newName &&
+                            /^[A-Za-z_][A-Za-z0-9_-]*$/.test(newName)
+                          ) {
                             setEdges((edges) =>
                               edges.map((edge) =>
                                 edge.target === id &&
@@ -518,23 +507,18 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
                                   : edge
                               )
                             );
+
+                            requestAnimationFrame(() => {
+                              updateNodeInternals(id);
+                            });
                           }
                         }}
                         style={{
                           flex: 1,
                           minWidth: 0,
-                          background: "rgba(255,255,255,0.04)",
-                          border: "1px solid rgba(255,255,255,0.08)",
-                          borderRadius: 3,
-                          color: "#c8d6e3",
-                          fontSize: 11,
-                          padding: "3px 5px",
-                          outline: "none",
                         }}
-                        placeholder="Input name"
                       />
 
-                      {/* Delete input */}
                       <button
                         className="nodrag"
                         onClick={(e) => {
@@ -542,17 +526,12 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
 
                           const inputName = input.name;
 
-                          // Remove input definition.
-                          const newInputs = (data.inputs || []).filter(
-                            (_: { name: string }, inputIdx: number) =>
-                              inputIdx !== idx
-                          );
-
                           set({
-                            inputs: newInputs,
+                            inputs: data.inputs.filter(
+                              (item: { id: string }) => item.id !== input.id
+                            ),
                           });
 
-                          // Remove edges connected to this input.
                           setEdges((edges) =>
                             edges.filter(
                               (edge) =>
@@ -562,17 +541,11 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
                                 )
                             )
                           );
+
+                          requestAnimationFrame(() => {
+                            updateNodeInternals(id);
+                          });
                         }}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "#ef9090",
-                          cursor: "pointer",
-                          padding: "0 4px",
-                          fontSize: 14,
-                          lineHeight: 1,
-                        }}
-                        title="Remove input"
                       >
                         ×
                       </button>
