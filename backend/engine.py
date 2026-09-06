@@ -80,9 +80,17 @@ async def execute(graph: WorkflowGraph):
                 config = node.data; profile = db.get_provider(config.get("provider", "")) if config.get("provider") else None
                 if config.get("provider") and not profile: raise WorkflowError(f"Provider '{config['provider']}' no longer exists.")
                 model = profile["model_id"] if profile else config.get("model", "")
-                # OpenAI-compatible Chat Completions uses max_tokens. Normalize UI
-                # values here so an edited number is never silently dropped.
-                options = {key: config[key] for key in ("temperature", "top_p", "presence_penalty") if key in config}
+                # Preserve every exposed sampling override. Standard OpenAI fields
+                # are understood by normal /chat/completions servers; the remaining
+                # fields are intentionally passed through for OpenAI-compatible
+                # gateways such as the user's custom router.
+                options = {}
+                for key in ("temperature", "top_p", "top_k", "min_p", "repetition_penalty", "presence_penalty", "frequency_penalty"):
+                    if config.get(key) not in (None, ""):
+                        try:
+                            options[key] = float(config[key])
+                        except (TypeError, ValueError):
+                            raise WorkflowError(f"{key} must be a number.")
                 raw_max_tokens = config.get("max_tokens", config.get("maxTokens"))
                 if raw_max_tokens not in (None, ""):
                     try:
