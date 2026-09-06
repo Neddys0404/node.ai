@@ -220,6 +220,8 @@ const statusColor = (state: string) => {
 // ─── Node Card ────────────────────────────────────────────────────────────────
 
 function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string }) {
+  const { setEdges } = useReactFlow();
+  
   const [sysOpen, setSysOpen] = useState(false);
   const set = (p: any) => data.onChange?.(id, p);
   const state = data.state || "idle";
@@ -367,25 +369,219 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
                 onChange={(v) => set({ template: v })}
                 placeholder="Use {{variable}}"
               />
-              {[
-                ...new Set(
-                  (
-                    String(data.template || "").match(
-                      /{{\s*([^}]+)\s*}}/g
-                    ) || ["{{text}}"]
-                  ).map((x) => x.slice(2, -2).trim())
-                ),
-              ].map((x, i) => (
-                <Handle
-                  key={x}
-                  type="target"
-                  position={Position.Left}
-                  id={x}
-                  style={{ ...HANDLE_STYLE, top: `${35 + i * 16}%` }}
-                />
-              ))}
+
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                  marginTop: 8,
+                }}
+              >
+                {/* Input header */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: 2,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: "#8fa6ba",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    Inputs
+                  </span>
+
+                  <Btn
+                    className="nodrag"
+                    onClick={(e) => {
+                      e.stopPropagation();
+
+                      const currentInputs = Array.isArray(data.inputs)
+                        ? data.inputs
+                        : [];
+
+                      // Find the first unused input_N name.
+                      let index = 1;
+                      let newName = `input_${index}`;
+
+                      while (
+                        currentInputs.some(
+                          (input: { name: string }) => input.name === newName
+                        )
+                      ) {
+                        index++;
+                        newName = `input_${index}`;
+                      }
+
+                      set({
+                        inputs: [
+                          ...currentInputs,
+                          {
+                            name: newName,
+                          },
+                        ],
+                      });
+                    }}
+                    style={{
+                      padding: "2px 6px",
+                      fontSize: 10,
+                    }}
+                  >
+                    + Add Input
+                  </Btn>
+                </div>
+
+                {/* Dynamic inputs */}
+                {(Array.isArray(data.inputs) ? data.inputs : []).map(
+                  (input: { name: string }, idx: number) => (
+                    <div
+                      key={`${input.name}-${idx}`}
+                      style={{
+                        position: "relative",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        minHeight: 24,
+                      }}
+                    >
+                      {/* Target handle */}
+                      <Handle
+                        type="target"
+                        position={Position.Left}
+                        id={input.name}
+                        style={{
+                          ...HANDLE_STYLE,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                        }}
+                      />
+
+                      {/* Input name */}
+                      <input
+                        className="nodrag"
+                        value={input.name}
+                        onChange={(e) => {
+                          const oldName = input.name;
+                          const newName = e.target.value.trim();
+
+                          // Don't allow empty names.
+                          if (!newName) {
+                            return;
+                          }
+
+                          // Only allow safe handle / variable names.
+                          if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(newName)) {
+                            return;
+                          }
+
+                          // Prevent duplicate names.
+                          const duplicate = (data.inputs || []).some(
+                            (other: { name: string }, otherIdx: number) =>
+                              otherIdx !== idx && other.name === newName
+                          );
+
+                          if (duplicate) {
+                            return;
+                          }
+
+                          // Update Template input definition.
+                          const newInputs = (data.inputs || []).map(
+                            (item: { name: string }, itemIdx: number) =>
+                              itemIdx === idx
+                                ? { ...item, name: newName }
+                                : { ...item }
+                          );
+
+                          set({
+                            inputs: newInputs,
+                          });
+
+                          // Keep existing edges connected after rename.
+                          if (oldName !== newName) {
+                            setEdges((edges) =>
+                              edges.map((edge) =>
+                                edge.target === id &&
+                                edge.targetHandle === oldName
+                                  ? {
+                                      ...edge,
+                                      targetHandle: newName,
+                                    }
+                                  : edge
+                              )
+                            );
+                          }
+                        }}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          background: "rgba(255,255,255,0.04)",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          borderRadius: 3,
+                          color: "#c8d6e3",
+                          fontSize: 11,
+                          padding: "3px 5px",
+                          outline: "none",
+                        }}
+                        placeholder="Input name"
+                      />
+
+                      {/* Delete input */}
+                      <button
+                        className="nodrag"
+                        onClick={(e) => {
+                          e.stopPropagation();
+
+                          const inputName = input.name;
+
+                          // Remove input definition.
+                          const newInputs = (data.inputs || []).filter(
+                            (_: { name: string }, inputIdx: number) =>
+                              inputIdx !== idx
+                          );
+
+                          set({
+                            inputs: newInputs,
+                          });
+
+                          // Remove edges connected to this input.
+                          setEdges((edges) =>
+                            edges.filter(
+                              (edge) =>
+                                !(
+                                  edge.target === id &&
+                                  edge.targetHandle === inputName
+                                )
+                            )
+                          );
+                        }}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#ef9090",
+                          cursor: "pointer",
+                          padding: "0 4px",
+                          fontSize: 14,
+                          lineHeight: 1,
+                        }}
+                        title="Remove input"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )
+                )}
+              </div>
             </>
           )}
+          {/* APPEND */}
 
           {/* APPEND */}
           {type === "append" && (
@@ -2439,9 +2635,9 @@ export default function App() {
             color: notice.ok
               ? "#69d2a5"
               : notice.msg.toLowerCase().includes("error") ||
-                  notice.msg.toLowerCase().includes("cancel")
-                ? "#ef9090"
-                : "#7a9cb0",
+                notice.msg.toLowerCase().includes("cancel")
+              ? "#ef9090"
+              : "#7a9cb0",
           }}
         >
           {notice.msg}

@@ -37,7 +37,7 @@ def transform(text: str, config: dict) -> str:
     if operation == "regex_replace": return re.sub(config.get("find", ""), config.get("replace", ""), text)
     if operation == "strip_fences": return re.sub(r"^```[\w-]*\s*|\s*```$", "", text.strip())
     if operation == "first_code_block":
-        match = re.search(r"```(?:[\w-]+)?\s*\n?(.*?)```", text, re.S); return match.group(1).strip() if match else text
+        match = re.search(r"```(?:[\w-]+)?\s*?(.*?)```", text, re.S); return match.group(1).strip() if match else text
     if operation == "extract_json":
         match = re.search(r"(\{.*\}|\[.*\])", text, re.S); return match.group(1) if match else text
     raise WorkflowError(f"Unknown transform operation '{operation}'.")
@@ -66,7 +66,42 @@ async def execute(graph: WorkflowGraph):
                 result = read_project_file(node.data.get("path", ""))
             elif node.type == "template":
                 template = node.data.get("template", "")
-                result = re.sub(r"{{\s*([^}]+)\s*}}", lambda m: str(inputs.get(m.group(1).strip(), "")), template)
+
+                # Explicit inputs owned by the Template node.
+                declared_inputs = {
+                    str(item.get("name", "")).strip()
+                    for item in node.data.get("inputs", [])
+                    if isinstance(item, dict) and str(item.get("name", "")).strip()
+                }
+
+                # Find variables referenced by {{variable}} in the template.
+                variables = {
+                    match.group(1).strip()
+                    for match in re.finditer(r"{{\s*([^}]+?)\s*}}", template)
+                }
+
+                # Template references an input that hasn't been declared.
+                undefined_variables = variables - declared_inputs
+                if undefined_variables:
+                    raise WorkflowError(
+                        "Template references undefined input(s): "
+                        + ", ".join(sorted(undefined_variables))
+                    )
+
+                # Template references an input that has no incoming connection.
+                missing_inputs = variables - set(inputs.keys())
+                if missing_inputs:
+                    raise WorkflowError(
+                        "Template input(s) not connected: "
+                        + ", ".join(sorted(missing_inputs))
+                    )
+
+                # Replace variables with their connected values.
+                result = re.sub(
+                    r"{{\s*([^}]+?)\s*}}",
+                    lambda m: str(inputs[m.group(1).strip()]),
+                    template,
+                )
             elif node.type == "transform": result = transform(str(inputs.get("text", "")), node.data)
             elif node.type == "append": result = node.data.get("prefix", "") + str(inputs.get("text", "")) + node.data.get("suffix", "")
             elif node.type == "condition":
