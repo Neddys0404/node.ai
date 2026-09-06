@@ -20,6 +20,7 @@ import {
   type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import nodeAiMark from "./node-ai-mark.svg";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2207,6 +2208,9 @@ export default function App() {
         {/* Brand */}
         <div
           style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
             fontWeight: 800,
             fontSize: 15,
             letterSpacing: "1.5px",
@@ -2214,7 +2218,14 @@ export default function App() {
             marginRight: 4,
           }}
         >
-          NODE<span style={{ color: "#69d2a5" }}>.AI</span>
+          <img
+            src={nodeAiMark}
+            width={27}
+            height={27}
+            alt="Node.AI"
+            style={{ display: "block" }}
+          />
+          <span>NODE<span style={{ color: "#69d2a5" }}>.AI</span></span>
         </div>
 
         {/* Divider */}
