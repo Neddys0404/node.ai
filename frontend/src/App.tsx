@@ -261,6 +261,7 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
           alignItems: "center",
           gap: 7,
           padding: "8px 10px",
+          borderRadius: "10px 10px 0px 0px",
           background: "#151e2e",
           borderBottom: collapsed ? "none" : "1px solid #243047",
         }}
