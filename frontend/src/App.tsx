@@ -15,6 +15,7 @@ import {
   addEdge,
   useEdgesState,
   useNodesState,
+  useReactFlow,
   type Connection,
   type Node,
   type NodeProps,
@@ -221,7 +222,7 @@ const statusColor = (state: string) => {
 
 function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string }) {
   const { setEdges } = useReactFlow();
-  
+
   const [sysOpen, setSysOpen] = useState(false);
   const set = (p: any) => data.onChange?.(id, p);
   const state = data.state || "idle";
