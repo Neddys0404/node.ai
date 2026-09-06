@@ -4,6 +4,14 @@ from backend.config import settings
 
 ROOT = Path(settings.project_root).resolve()
 
+def set_root(path: str):
+    """Switch the active workspace to an existing directory on the server host."""
+    global ROOT
+    candidate = Path(path).expanduser().resolve()
+    if not candidate.is_dir(): raise ValueError("Folder does not exist or is not accessible to Node.AI.")
+    ROOT = candidate
+    return str(ROOT)
+
 def _path(relative: str) -> Path:
     target = (ROOT / relative).resolve()
     if target != ROOT and ROOT not in target.parents: raise ValueError("Invalid project path")

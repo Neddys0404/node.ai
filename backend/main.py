@@ -1,4 +1,4 @@
-import logging, time
+import logging, time, asyncio
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
@@ -11,7 +11,7 @@ from backend import db
 from backend.engine import execute, WorkflowError
 from backend.models import WorkflowCreate, RunRequest, ProviderProfile
 from backend.llm import chat
-from backend.workspace import init_project, tree, read_project_file, write_project_file, delete_project_file, move_project_file
+from backend.workspace import init_project, tree, read_project_file, write_project_file, delete_project_file, move_project_file, set_root
 
 logging.basicConfig(level=logging.DEBUG if settings.debug else logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -84,8 +84,28 @@ def history(): return db.list_history()
 
 class FileWrite(BaseModel): path: str; content: str = ""
 class FileMove(BaseModel): source: str; target: str
+class FolderOpen(BaseModel): path: str
 @app.get("/api/project/tree")
 def project_tree(): return tree()
+@app.post("/api/project/open-folder")
+def open_project_folder(item: FolderOpen):
+    try: return {"root": set_root(item.path), "tree": tree()}
+    except ValueError as error: raise HTTPException(400, str(error))
+@app.post("/api/project/pick-folder")
+async def pick_project_folder():
+    """Native chooser for local desktop deployments; unavailable in headless Docker."""
+    def choose():
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True)
+        try: return filedialog.askdirectory(title="Open Node.AI project folder")
+        finally: root.destroy()
+    try:
+        path = await asyncio.to_thread(choose)
+        if not path: return {"cancelled": True}
+        return {"root": set_root(path), "tree": tree()}
+    except Exception as error:
+        raise HTTPException(501, "Native folder chooser is unavailable on this server; enter a server-accessible folder path instead.") from error
 @app.get("/api/project/file")
 def project_file(path: str):
     try: return {"path":path, "content":read_project_file(path)}
