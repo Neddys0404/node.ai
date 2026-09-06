@@ -471,7 +471,7 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
                         id={input.name}
                         style={{
                           ...HANDLE_STYLE,
-                          left: -31,
+                          left: -1,
                           top: "50%",
                           transform: "translateY(-50%)",
                         }}
