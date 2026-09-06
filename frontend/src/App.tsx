@@ -250,7 +250,7 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
           ? "0 0 0 2px #69d2a540, 0 8px 32px #0006"
           : "0 4px 20px #0004",
         color: "#d8e4f0",
-        overflow: "hidden",
+        overflow: "visible",
         fontFamily: "Inter, ui-sans-serif, sans-serif",
       }}
     >
