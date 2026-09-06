@@ -2,3 +2,9 @@
 .react-flow__node-output .output{text-align:left!important;background:transparent!important}
 .workflow-row{display:flex;gap:8px;align-items:center}.workflow-row .command{flex:1}.tree{display:flex;align-items:center;flex-wrap:wrap}.tree>div{width:100%}.tree-delete{margin-left:auto!important;color:#ff9b9b!important}.code-highlight{margin:0;background:#11161e;border:1px solid #354354;border-radius:4px;padding:7px;overflow:auto;font:11px/1.45 ui-monospace,monospace;white-space:pre-wrap;color:#dce6f2}.code-highlight .comment{color:#7f8d9c}.code-highlight .string{color:#d9aa73}.code-highlight .number{color:#91c8e8}.code-highlight .keyword{color:#b58bea}
 .workspace{grid-template-columns:auto 1fr!important}.explorer{width:210px;min-width:150px;max-width:520px;resize:horizontal;overflow:auto!important}
+
+/* Keep the workflow canvas spacious while retaining one-click quick-add controls. */
+main{grid-template-columns:44px 1fr!important}main>header,main>footer{grid-column:1/3!important}main>aside{width:44px;padding:18px 8px;overflow:hidden;white-space:nowrap;transition:width .16s ease,box-shadow .16s ease;z-index:8}main>aside:hover{width:180px;box-shadow:10px 0 24px #0007}main>aside b,main>aside p,main>aside .history{opacity:0;transition:opacity .12s ease}main>aside:hover b,main>aside:hover p,main>aside:hover .history{opacity:1}main>aside button{min-width:28px;padding-left:7px;padding-right:7px}main>aside:not(:hover) button{font-size:0}main>aside:not(:hover) button::first-letter{font-size:15px}
+
+/* The status remains in the footer too; this is the immediate local save cue. */
+.editor>button:focus::after{content:' ✓ Saved';color:#69d2a5;font-weight:700;margin-left:7px;white-space:nowrap}.editor>button:focus{overflow:visible}
