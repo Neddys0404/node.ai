@@ -42,3 +42,12 @@ html, body, #root {
 .react-flow__attribution {
   display: none;
 }
+
+/* Show delete button on file row hover */
+div:hover > .tree-del {
+  opacity: 0.7 !important;
+}
+.tree-del:hover {
+  opacity: 1 !important;
+  color: #ef9090 !important;
+}
