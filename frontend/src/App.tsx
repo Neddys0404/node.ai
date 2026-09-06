@@ -1117,8 +1117,10 @@ function Workspace({
   onClose: () => void;
 }) {
   const [treeWidth, setTreeWidth] = useState(210);
+  const [workspaceWidth, setWorkspaceWidth] = useState(760);
   const [savedIndicator, setSavedIndicator] = useState(false);
   const dragRef = useRef<{ x: number; w: number } | null>(null);
+  const workspaceDragRef = useRef<{ x: number; w: number } | null>(null);
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -1130,6 +1132,24 @@ function Workspace({
     };
     const onUp = () => {
       dragRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  const startWorkspaceResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    workspaceDragRef.current = { x: e.clientX, w: workspaceWidth };
+    const onMove = (ev: MouseEvent) => {
+      if (!workspaceDragRef.current) return;
+      // The panel is anchored on the right, so dragging left makes it wider.
+      const next = workspaceDragRef.current.w + workspaceDragRef.current.x - ev.clientX;
+      setWorkspaceWidth(Math.max(480, Math.min(window.innerWidth * 0.92, next)));
+    };
+    const onUp = () => {
+      workspaceDragRef.current = null;
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
@@ -1195,7 +1215,8 @@ function Workspace({
         right: 0,
         top: 0,
         bottom: 0,
-        width: "min(760px, 72vw)",
+        width: workspaceWidth,
+        maxWidth: "92vw",
         display: "flex",
         flexDirection: "column",
         background: "#12192a",
@@ -1203,6 +1224,22 @@ function Workspace({
         boxShadow: "-12px 0 36px #0008",
       }}
     >
+      {/* Resize the entire project panel from its left edge. */}
+      <div
+        onMouseDown={startWorkspaceResize}
+        title="Drag to resize Project Explorer"
+        style={{
+          position: "absolute",
+          left: -5,
+          top: 0,
+          bottom: 0,
+          width: 10,
+          cursor: "col-resize",
+          zIndex: 20,
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "#2d6d9f")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+      />
       {/* Header */}
       <div
         style={{
