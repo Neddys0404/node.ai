@@ -471,9 +471,18 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
                         id={input.name}
                         style={{
                           ...HANDLE_STYLE,
+
+                          // Push the handle from the input row
+                          // all the way to the node's left edge.
                           left: -15,
+
+                          // Keep it vertically centered with this input row.
                           top: "50%",
                           transform: "translateY(-50%)",
+
+                          // Make sure the handle is rendered above
+                          // the node border/background.
+                          zIndex: 10,
                         }}
                       />
 
@@ -482,9 +491,6 @@ function NodeCard({ id, data, type, selected }: NodeProps<W> & { type: string })
                         value={input.name}
                         onChange={(e) => {
                           const newName = e.target.value;
-
-                          // Allow the user to edit naturally.
-                          // Validation can happen on blur/Enter.
                           const oldName = input.name;
 
                           const newInputs = data.inputs.map(
