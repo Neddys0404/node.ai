@@ -3,6 +3,7 @@ from collections import defaultdict, deque
 from typing import Any
 from backend.models import WorkflowGraph
 from backend.llm import chat
+from backend import db
 
 
 class WorkflowError(Exception): pass
@@ -60,6 +61,9 @@ async def execute(graph: WorkflowGraph):
         node = nodes[node_id]; states[node_id] = {"status": "running"}; inputs = input_values(node_id, graph.edges, outputs)
         try:
             if node.type == "textInput": result = node.data.get("text", "")
+            elif node.type == "fileInput":
+                from backend.workspace import read_project_file
+                result = read_project_file(node.data.get("path", ""))
             elif node.type == "template":
                 template = node.data.get("template", "")
                 result = re.sub(r"{{\s*([^}]+)\s*}}", lambda m: str(inputs.get(m.group(1).strip(), "")), template)
@@ -73,7 +77,13 @@ async def execute(graph: WorkflowGraph):
             elif node.type == "llm":
                 prompt = inputs.get("prompt") or inputs.get("text")
                 if not prompt: raise WorkflowError("LLM Task requires input 'prompt'.")
-                config = node.data; result = await chat({"model": config.get("model", ""), "messages": [{"role":"system","content":config.get("systemPrompt", "")}, {"role":"user","content":str(prompt)}], **{key: config[key] for key in ("temperature","top_p","top_k","min_p","repetition_penalty","presence_penalty","max_tokens") if key in config}})
+                config = node.data; profile = db.get_provider(config.get("provider", "")) if config.get("provider") else None
+                if config.get("provider") and not profile: raise WorkflowError(f"Provider '{config['provider']}' no longer exists.")
+                model = profile["model_id"] if profile else config.get("model", "")
+                result, usage = await chat({"model": model, "messages": [{"role":"system","content":config.get("systemPrompt", "")}, {"role":"user","content":str(prompt)}], **{key: config[key] for key in ("temperature","top_p","top_k","min_p","repetition_penalty","presence_penalty","max_tokens") if key in config}}, profile)
+                states[node_id]["provider"] = profile["alias"] if profile else "Default"
+                states[node_id]["model"] = model
+                if usage: states[node_id]["usage"] = usage
             elif node.type == "output": result = str(inputs.get("text", ""))
             else: raise WorkflowError(f"Unknown node type '{node.type}'.")
             outputs[node_id] = result; states[node_id] = {"status": "success", "preview": str(result)[:180]}

@@ -1,6 +1,18 @@
 # Node.AI
 
-A lightweight, self-hosted visual workflow editor for an existing OpenAI-compatible LLM API. It does not host or manage models: the browser talks only to Node.AI, and Node.AI calls the configured LLM service server-side.
+A lightweight, self-hosted visual workflow editor for OpenAI-compatible LLM APIs. It does not host or manage models: the browser talks only to Node.AI, and Node.AI calls the configured LLM service server-side.
+
+## Workspace and provider profiles
+
+The **Providers** dialog stores named endpoint/model profiles in SQLite. Select a
+profile in an LLM Task instead of embedding credentials in a workflow. API keys
+are never returned by the API or included in exported workflow JSON.
+
+The **Project** panel is a constrained workspace rooted at `data/project`
+(`workflows`, `prompts`, `scripts`, `configs`, `outputs`, and `docs`). It offers
+basic project-file editing and Markdown source/preview. File Input nodes retain a
+project-relative path and resolve it only at execution time. The Docker data
+volume already persists this directory along with SQLite.
 
 ## Run with Docker
 

@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     llm_api_base_url: str = Field("http://host.docker.internal:8000/v1")
     llm_api_key: str = ""
     database_url: str = "data/workflows.db"
+    project_root: str = "data/project"
     debug: bool = False
 
 

@@ -18,7 +18,7 @@ class GraphEdge(BaseModel):
 
 
 class WorkflowGraph(BaseModel):
-    version: int = 1
+    version: int = 2
     nodes: list[GraphNode]
     edges: list[GraphEdge] = Field(default_factory=list)
 
@@ -37,6 +37,25 @@ class WorkflowRecord(WorkflowCreate):
 
 class RunRequest(BaseModel):
     graph: WorkflowGraph
+
+
+class ProviderProfile(BaseModel):
+    alias: str = Field(min_length=1, max_length=80)
+    endpoint: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    api_type: str = "openai"
+    api_key: str = ""
+    timeout_seconds: int = Field(default=120, ge=5, le=600)
+
+
+class ProviderPublic(BaseModel):
+    id: int
+    alias: str
+    endpoint: str
+    model_id: str
+    api_type: str
+    has_api_key: bool
+    timeout_seconds: int
 
 
 class RunResult(BaseModel):
