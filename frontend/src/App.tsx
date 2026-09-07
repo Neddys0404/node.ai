@@ -2568,7 +2568,7 @@ export default function App() {
             fitView
             style={{ background: "#0d1520" }}
           >
-            <Background gap={28} color="#1a2840" />
+            <Background gap={28} color="#3f444d" />
             <Controls
               style={{
                 background: "#111e2e",
