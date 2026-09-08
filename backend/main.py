@@ -12,6 +12,8 @@ from backend.engine import execute, WorkflowError
 from backend.models import WorkflowCreate, RunRequest, ProviderProfile
 from backend.llm import chat
 from backend.workspace import init_project, tree, read_project_file, write_project_file, delete_project_file, move_project_file, set_root
+from backend import git as git_service
+from backend.git import GitError, GitConflictError
 
 logging.basicConfig(level=logging.DEBUG if settings.debug else logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -122,6 +124,35 @@ def remove_project_file(path: str):
 def move_project(item: FileMove):
     try: move_project_file(item.source, item.target); return {"ok":True}
     except (OSError, ValueError) as error: raise HTTPException(400, str(error))
+
+# ── Git ──────────────────────────────────────────────────────────────────────
+
+class GitUrl(BaseModel): url: str = ""
+class GitBranch(BaseModel): name: str = ""
+
+def _git_error(error: Exception):
+    raise HTTPException(409 if isinstance(error, GitConflictError) else 400, str(error))
+
+@app.get("/api/git/status")
+async def git_status():
+    try: return await git_service.status()
+    except GitError as error: return {"is_repo": False, "branch": None, "remotes": [], "error": str(error)}
+@app.post("/api/git/clone")
+async def git_clone(item: GitUrl):
+    try: return await git_service.clone(item.url)
+    except GitError as error: _git_error(error)
+@app.post("/api/git/pull")
+async def git_pull():
+    try: return await git_service.pull()
+    except GitError as error: _git_error(error)
+@app.post("/api/git/push")
+async def git_push():
+    try: return await git_service.push()
+    except GitError as error: _git_error(error)
+@app.post("/api/git/publish-branch")
+async def git_publish_branch(item: GitBranch):
+    try: return await git_service.publish_branch(item.name)
+    except GitError as error: _git_error(error)
 
 web = Path("frontend/dist")
 if web.exists():

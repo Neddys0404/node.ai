@@ -1296,7 +1296,7 @@ function Workspace({
   refresh: () => void;
   file: any;
   setFile: (x: any) => void;
-  notify: (s: string) => void;
+  notify: (s: string, ok?: boolean) => void;
   onClose: () => void;
 }) {
   const [treeWidth, setTreeWidth] = useState(210);
@@ -1390,6 +1390,71 @@ function Workspace({
     refresh();
   };
 
+  // ── Git ───────────────────────────────────────────────────────────────────
+  const [gitUrl, setGitUrl] = useState("");
+  const [gitBusy, setGitBusy] = useState<null | "clone" | "pull" | "push" | "publish">(null);
+  const [gitInfo, setGitInfo] = useState<{ is_repo: boolean; branch: string | null; remotes: string[] } | null>(null);
+  const [showPublish, setShowPublish] = useState(false);
+
+  const loadGit = () =>
+    fetch("/api/git/status")
+      .then((r) => r.json())
+      .then(setGitInfo)
+      .catch(() => setGitInfo(null));
+
+  const runGit = async (kind: "clone" | "pull" | "push" | "publish", fn: () => Promise<void>) => {
+    setGitBusy(kind);
+    try {
+      await fn();
+    } catch (e: any) {
+      notify(String(e.message || e));
+    } finally {
+      setGitBusy(null);
+      loadGit();
+    }
+  };
+
+  const doClone = () =>
+    runGit("clone", async () => {
+      const r = await fetch("/api/git/clone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: gitUrl }),
+      });
+      const b = await safeJson(r);
+      if (!r.ok) throw new Error(b.detail);
+      notify("✓ Cloned into " + b.dir, true);
+      refresh();
+    });
+
+  const doPull = () =>
+    runGit("pull", async () => {
+      const r = await fetch("/api/git/pull", { method: "POST" });
+      const b = await safeJson(r);
+      if (!r.ok) throw new Error(b.detail);
+      notify("✓ Pulled" + (b.output ? ": " + b.output : ""), true);
+    });
+
+  const doPush = () =>
+    runGit("push", async () => {
+      const r = await fetch("/api/git/push", { method: "POST" });
+      const b = await safeJson(r);
+      if (!r.ok) throw new Error(b.detail);
+      notify("✓ Pushed" + (b.output ? ": " + b.output : ""), true);
+    });
+
+  const doPublish = (branch: string) =>
+    runGit("publish", async () => {
+      const r = await fetch("/api/git/publish-branch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: branch }),
+      });
+      const b = await safeJson(r);
+      if (!r.ok) throw new Error(b.detail);
+      notify("✓ Branch " + branch + " published to " + b.remote, true);
+    });
+
   return (
     <div
       style={{
@@ -1449,6 +1514,54 @@ function Workspace({
         <Btn small variant="ghost" onClick={onClose}>
           ✕
         </Btn>
+      </div>
+
+      {/* Git controls */}
+      <div
+        style={{
+          padding: "10px 16px 12px",
+          borderBottom: "1px solid #273447",
+          background: "#101a2c",
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#7a9cb0", letterSpacing: 0.5 }}>GIT</span>
+          {gitInfo && (
+            gitInfo.is_repo ? (
+              <span style={{ fontSize: 10, color: "#69d2a5", fontFamily: "ui-monospace, monospace", flex: 1 }}>
+                {gitInfo.branch || "detached HEAD"}
+                {gitInfo.remotes.length ? " · " + gitInfo.remotes.join(", ") : " · no remote"}
+              </span>
+            ) : (
+              <span style={{ fontSize: 10, color: "#4a6070", flex: 1 }}>
+                active folder is not a Git repository — clone one below
+              </span>
+            )
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            value={gitUrl}
+            onChange={(e) => setGitUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !gitBusy) doClone(); }}
+            placeholder="https://github.com/user/repo.git"
+            title="Repository URL — cloned into the project directory"
+            style={{ ...inputStyle, marginBottom: 0, flex: 1, fontFamily: "ui-monospace, monospace" }}
+          />
+          <Btn small onClick={doClone} disabled={!!gitBusy} title="Clone the repository into the project directory">
+            {gitBusy === "clone" ? "Cloning…" : "Clone"}
+          </Btn>
+          <Btn small onClick={doPull} disabled={!!gitBusy || !gitInfo?.is_repo} title="Pull from the remote">
+            {gitBusy === "pull" ? "Pulling…" : "Pull"}
+          </Btn>
+          <Btn small onClick={doPush} disabled={!!gitBusy || !gitInfo?.is_repo} title="Push to the configured upstream">
+            {gitBusy === "push" ? "Pushing…" : "Push"}
+          </Btn>
+          <Btn small onClick={() => setShowPublish(true)} disabled={!!gitBusy || !gitInfo?.is_repo} title="Create and publish a new branch">
+            {gitBusy === "publish" ? "Publishing…" : "Publish Branch"}
+          </Btn>
+        </div>
       </div>
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
@@ -1603,7 +1716,73 @@ function Workspace({
           )}
         </div>
       </div>
+
+      {/* Publish Branch dialog */}
+      {showPublish && (
+        <PublishBranchModal
+          current={gitInfo?.branch ?? null}
+          close={() => setShowPublish(false)}
+          done={doPublish}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── Publish Branch dialog ───────────────────────────────────────────────────
+
+function PublishBranchModal({
+  current,
+  close,
+  done,
+}: {
+  current: string | null;
+  close: () => void;
+  done: (name: string) => Promise<void>;
+}) {
+  const [name, setName] = useState("feature/" + new Date().toISOString().slice(0, 10));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await done(name);
+      close();
+    } catch (e: any) {
+      setError(String(e.message || e));
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal title="Publish Branch" close={close}>
+      <p style={{ fontSize: 11, color: "#7a9cb0", lineHeight: 1.5, marginBottom: 12 }}>
+        Creates a new branch from the current branch{current ? ` (${current})` : ""} and pushes it with an upstream.
+        Existing branches are never overwritten; uncommitted changes are carried over, not discarded.
+      </p>
+      <label style={{ fontSize: 11, color: "#7a9cb0", display: "block", marginBottom: 4 }}>
+        Branch name
+      </label>
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && !busy) submit(); }}
+        placeholder="feature/my-new-feature"
+        style={{ ...inputStyle, fontFamily: "ui-monospace, monospace", marginBottom: error ? 6 : 12 }}
+      />
+      {error && (
+        <p style={{ fontSize: 11, color: "#ef9090", whiteSpace: "pre-wrap", lineHeight: 1.5, marginBottom: 10 }}>
+          {error}
+        </p>
+      )}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+        <Btn onClick={close} disabled={busy}>Cancel</Btn>
+        <Btn variant="primary" onClick={submit} disabled={busy || !name.trim()}>
+          {busy ? "Publishing…" : "Publish Branch"}
+        </Btn>
+      </div>
+    </Modal>
   );
 }
 
@@ -2594,7 +2773,7 @@ export default function App() {
               refresh={refresh}
               file={file}
               setFile={setFile}
-              notify={(msg) => notify(msg, true)}
+              notify={(msg, ok) => notify(msg, ok)}
               onClose={() => setShowWorkspace(false)}
             />
           )}
