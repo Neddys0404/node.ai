@@ -12,6 +12,9 @@ from backend.engine import execute, WorkflowError
 from backend.models import WorkflowCreate, RunRequest, ProviderProfile
 from backend.llm import chat
 from backend.workspace import init_project, tree, read_project_file, write_project_file, delete_project_file, move_project_file, set_root
+import backend.git_service as git_service
+from backend.git_service import GitError   # add near the other backend imports
+import backend.workspace as workspace
 
 logging.basicConfig(level=logging.DEBUG if settings.debug else logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -41,7 +44,7 @@ def update_workflow(workflow_id: int, item: WorkflowCreate):
 @app.delete("/api/workflows/{workflow_id}")
 def remove_workflow(workflow_id: int):
     if not db.delete_workflow(workflow_id): raise HTTPException(404, "Workflow not found")
-    return {"ok": True}
+    return {"ok":True}
 @app.post("/api/run")
 async def run(request: RunRequest):
     started = datetime.now(timezone.utc); clock = time.perf_counter()
@@ -61,9 +64,9 @@ def create_provider(item: ProviderProfile):
     except ValueError as error: raise HTTPException(409, str(error))
 @app.put("/api/providers/{provider_id}")
 def update_provider(provider_id: int, item: ProviderProfile):
+    if not db.get_provider(provider_id): raise HTTPException(404, "Provider not found")
     try:
         saved = db.save_provider(item, provider_id)
-        if not saved: raise HTTPException(404, "Provider not found")
         return saved
     except ValueError as error: raise HTTPException(409, str(error))
 @app.delete("/api/providers/{provider_id}")
@@ -82,6 +85,48 @@ async def test_provider(provider_id: int):
 @app.get("/api/history")
 def history(): return db.list_history()
 
+def _git_error(err: GitError):
+    code = {"invalid_branch": 422, "command_not_found": 503}.get(err.kind, 409)
+    return HTTPException(status_code=code, detail={"message": err.message, "detail": err.detail})
+
+@app.get("/api/git/status")
+async def git_status():
+    return await git_service.status(workspace.ROOT)
+
+@app.post("/api/git/clone")
+async def git_clone(url: str):
+    try:
+        return await git_service.clone(url, workspace.ROOT)
+    except GitError as err:
+        raise _git_error(err)
+
+@app.post("/api/git/pull")
+async def git_pull():
+    if not await git_service.is_git_repo(workspace.ROOT):
+        raise HTTPException(409, detail={"message": "Current project directory is not a Git repository.", "detail": ""})
+    try:
+        return await git_service.pull(workspace.ROOT)
+    except GitError as err:
+        raise _git_error(err)
+
+@app.post("/api/git/push")
+async def git_push():
+    if not await git_service.is_git_repo(workspace.ROOT):
+        raise HTTPException(409, detail={"message": "Current project directory is not a Git repository.", "detail": ""})
+    try:
+        return await git_service.push(workspace.ROOT)
+    except GitError as err:
+        raise _git_error(err)
+
+@app.post("/api/git/publish-branch")
+async def git_publish_branch(branch_name: str):
+    if not await git_service.is_git_repo(workspace.ROOT):
+        raise HTTPException(409, detail={"message": "Current project directory is not a Git repository.", "detail": ""})
+    try:
+        return await git_service.publish_branch(workspace.ROOT, branch_name)
+    except GitError as err:
+        raise _git_error(err)
+        
 class FileWrite(BaseModel): path: str; content: str = ""
 class FileMove(BaseModel): source: str; target: str
 class FolderOpen(BaseModel): path: str
@@ -104,8 +149,7 @@ async def pick_project_folder():
         path = await asyncio.to_thread(choose)
         if not path: return {"cancelled": True}
         return {"root": set_root(path), "tree": tree()}
-    except Exception as error:
-        raise HTTPException(501, "Native folder chooser is unavailable on this server; enter a server-accessible folder path instead.") from error
+    except Exception as error: raise HTTPException(501, f"Native folder chooser is unavailable on this server; enter a server-accessible folder path instead.") from error
 @app.get("/api/project/file")
 def project_file(path: str):
     try: return {"path":path, "content":read_project_file(path)}
@@ -117,7 +161,7 @@ def save_project_file(item: FileWrite):
 @app.delete("/api/project/file")
 def remove_project_file(path: str):
     try: delete_project_file(path); return {"ok":True}
-    except (OSError, ValueError) as error: raise HTTPException(400, str(error))
+    except (OSError, ValueError) as error: raise HTTPException(404, str(error))
 @app.post("/api/project/move")
 def move_project(item: FileMove):
     try: move_project_file(item.source, item.target); return {"ok":True}
