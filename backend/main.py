@@ -13,7 +13,7 @@ from backend.models import WorkflowCreate, RunRequest, ProviderProfile
 from backend.llm import chat
 from backend.workspace import init_project, tree, read_project_file, write_project_file, delete_project_file, move_project_file, set_root
 from backend import git as git_service
-from backend.git import GitError, GitConflictError
+from backend.git import GitError, GitConflictError, GitAuthRequiredError
 
 logging.basicConfig(level=logging.DEBUG if settings.debug else logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -129,8 +129,22 @@ def move_project(item: FileMove):
 
 class GitUrl(BaseModel): url: str = ""
 class GitBranch(BaseModel): name: str = ""
+class GitPushRequest(GitBranch):
+    username: str | None = None
+    token: str | None = None
+    save: bool = False
+class GitCredentials(BaseModel):
+    username: str = ""
+    token: str = ""
 
 def _git_error(error: Exception):
+    if isinstance(error, GitAuthRequiredError):
+        # detail carries the user message; auth_required tells the UI to open
+        # the credential dialog (true = none configured, false = stored ones failed).
+        raise HTTPException(
+            409,
+            {"message": str(error), "auth_required": bool(getattr(error, "auth_required", True))},
+        )
     raise HTTPException(409 if isinstance(error, GitConflictError) else 400, str(error))
 
 @app.get("/api/git/status")
@@ -146,12 +160,62 @@ async def git_pull():
     try: return await git_service.pull()
     except GitError as error: _git_error(error)
 @app.post("/api/git/push")
-async def git_push():
-    try: return await git_service.push()
-    except GitError as error: _git_error(error)
+async def git_push(item: GitPushRequest | None = None):
+    """Uses stored credentials. Optional one-shot credentials may be supplied
+    (from the auth dialog) and persisted when save=True."""
+    try:
+        credentials = git_service.get_stored_credentials()
+        if item and ((item.username or "").strip() or (item.token or "").strip()):
+            if item.save:
+                git_service.save_credentials(item.username or "", item.token or "")
+            else:
+                credentials = {"username": (item.username or "").strip(), "token": (item.token or "").strip()}
+        return await git_service.push(credentials)
+    except (GitError, ValueError) as error: _git_error(error)
 @app.post("/api/git/publish-branch")
-async def git_publish_branch(item: GitBranch):
-    try: return await git_service.publish_branch(item.name)
+async def git_publish_branch(item: GitPushRequest):
+    try:
+        credentials = git_service.get_stored_credentials()
+        if ((item.username or "").strip() or (item.token or "").strip()):
+            if item.save:
+                git_service.save_credentials(item.username or "", item.token or "")
+            else:
+                credentials = {"username": (item.username or "").strip(), "token": (item.token or "").strip()}
+        return await git_service.publish_branch(item.name, credentials)
+    except (GitError, ValueError) as error: _git_error(error)
+
+# ── Git credentials (stored backend-side; never echoed back in plaintext) ────
+
+def _cred_row():
+    import sqlite3 as _sqlite3
+    try:
+        conn = _sqlite3.connect(str(git_service._CRED_DB)); conn.row_factory = _sqlite3.Row
+        return conn.execute("SELECT username FROM git_credentials WHERE id=1").fetchone()
+    except Exception: return None
+
+@app.get("/api/git/credentials")
+def git_credentials_status():
+    row = _cred_row()
+    return {"configured": bool(row), "username": row["username"] if row else None}
+@app.post("/api/git/credentials")
+def save_git_credentials(item: GitCredentials):
+    try:
+        # An empty token means "keep the stored one" (update-username flow).
+        if not item.token.strip():
+            old = git_service.get_stored_credentials()
+            if not old:
+                raise ValueError("A personal access token is required.")
+            item.token = old["token"]
+        git_service.save_credentials(item.username, item.token)
+    except ValueError as error: raise HTTPException(400, str(error))
+    return {"ok": True, "username": item.username.strip()}
+@app.delete("/api/git/credentials")
+def clear_git_credentials():
+    git_service.clear_credentials()
+    return {"ok": True}
+@app.post("/api/git/credentials/test")
+async def test_git_credentials(item: GitCredentials):
+    try: return await git_service.test_github_credentials(item.username, item.token)
     except GitError as error: _git_error(error)
 
 web = Path("frontend/dist")

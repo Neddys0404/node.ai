@@ -5,6 +5,19 @@ from backend.config import settings
 
 ROOT = Path(settings.project_root).resolve()
 
+def _is_git_repo(directory: Path) -> bool:
+    """True when the directory itself is (inside) a Git work tree."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(directory), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return result.returncode == 0 and result.stdout.strip() == "true"
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def set_root(path: str):
     """Switch the active workspace to an existing directory on the server host."""
     global ROOT
@@ -19,6 +32,10 @@ def _path(relative: str) -> Path:
     return target
 
 def init_project():
+    # Never create Node.AI folders inside an existing Git repository — that
+    # would pollute the user's work tree with untracked files.
+    if _is_git_repo(ROOT):
+        return
     for name in ("workflows", "prompts", "scripts", "configs", "outputs", "docs"): (ROOT / name).mkdir(parents=True, exist_ok=True)
 
 def tree(directory: Path | None = None):

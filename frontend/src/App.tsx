@@ -1290,6 +1290,7 @@ function Workspace({
   file,
   setFile,
   notify,
+  openSettings,
   onClose,
 }: {
   tree: any[];
@@ -1297,6 +1298,7 @@ function Workspace({
   file: any;
   setFile: (x: any) => void;
   notify: (s: string, ok?: boolean) => void;
+  openSettings: () => void;
   onClose: () => void;
 }) {
   const [treeWidth, setTreeWidth] = useState(210);
@@ -1373,7 +1375,9 @@ function Workspace({
     let b = await safeJson(r);
     if (r.ok && !b.cancelled) {
       setFile(null);
-      return refresh();
+      refresh();
+      loadGit(); // re-detect repository status for the newly opened folder
+      return;
     }
     const path = prompt(
       "Enter a folder path on the Node.AI server/device"
@@ -1388,6 +1392,7 @@ function Workspace({
     if (!r.ok) return alert(b.detail);
     setFile(null);
     refresh();
+    loadGit(); // re-detect repository status for the newly opened folder
   };
 
   // ── Git ───────────────────────────────────────────────────────────────────
@@ -1395,6 +1400,8 @@ function Workspace({
   const [gitBusy, setGitBusy] = useState<null | "clone" | "pull" | "push" | "publish">(null);
   const [gitInfo, setGitInfo] = useState<{ is_repo: boolean; branch: string | null; remotes: string[] } | null>(null);
   const [showPublish, setShowPublish] = useState(false);
+  const [authReq, setAuthReq] = useState<null | { kind: "push" | "publish" }>(null);
+  const authResolvers = useRef<Array<(c: { username: string; token: string; save: boolean } | null | false) => void>>([]);
 
   const loadGit = () =>
     fetch("/api/git/status")
@@ -1402,8 +1409,14 @@ function Workspace({
       .then(setGitInfo)
       .catch(() => setGitInfo(null));
 
+  // Detect the repository as soon as the workspace opens — no Clone click needed.
+  useEffect(() => { loadGit(); }, []);
+
   const runGit = async (kind: "clone" | "pull" | "push" | "publish", fn: () => Promise<void>) => {
     setGitBusy(kind);
+    notify(
+      { clone: "Cloning…", pull: "Pulling…", push: "Pushing…", publish: "Publishing branch…" }[kind]
+    );
     try {
       await fn();
     } catch (e: any) {
@@ -1412,6 +1425,21 @@ function Workspace({
       setGitBusy(null);
       loadGit();
     }
+  };
+
+  // Returns null when stored credentials exist (proceed as-is), the
+  // one-shot credentials just entered in the dialog, or false on cancel.
+  const ensureAuth = async (kind: "push" | "publish"):
+    Promise<{ username: string; token: string; save: boolean } | null | false> => {
+    try {
+      const r = await fetch("/api/git/credentials");
+      const b = await safeJson(r);
+      if (b.configured) return null; // stored credentials exist — use them
+    } catch { /* fall through to the dialog */ }
+    setAuthReq({ kind });
+    return new Promise((resolve) => {
+      authResolvers.current.push(resolve);
+    });
   };
 
   const doClone = () =>
@@ -1431,29 +1459,39 @@ function Workspace({
     runGit("pull", async () => {
       const r = await fetch("/api/git/pull", { method: "POST" });
       const b = await safeJson(r);
-      if (!r.ok) throw new Error(b.detail);
-      notify("✓ Pulled" + (b.output ? ": " + b.output : ""), true);
+      if (!r.ok) throw new Error(typeof b.detail === "string" ? b.detail : b.detail?.message || "Pull failed.");
+      notify("✓ Pulled.", true);
     });
 
-  const doPush = () =>
-    runGit("push", async () => {
-      const r = await fetch("/api/git/push", { method: "POST" });
+  const doPush = async () => {
+    const auth = await ensureAuth("push");
+    if (auth === false) return;
+    await runGit("push", async () => {
+      const r = await fetch("/api/git/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(auth ?? {}),
+      });
       const b = await safeJson(r);
-      if (!r.ok) throw new Error(b.detail);
-      notify("✓ Pushed" + (b.output ? ": " + b.output : ""), true);
+      if (!r.ok) throw new Error(b.detail?.message || b.detail || "Push failed.");
+      notify("✓ Pushed.", true);
     });
+  };
 
-  const doPublish = (branch: string) =>
-    runGit("publish", async () => {
+  const doPublish = async (branch: string) => {
+    const auth = await ensureAuth("publish");
+    if (auth === false) return;
+    await runGit("publish", async () => {
       const r = await fetch("/api/git/publish-branch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: branch }),
+        body: JSON.stringify({ name: branch, ...(auth ?? {}) }),
       });
       const b = await safeJson(r);
-      if (!r.ok) throw new Error(b.detail);
-      notify("✓ Branch " + branch + " published to " + b.remote, true);
+      if (!r.ok) throw new Error(b.detail?.message || b.detail || "Publish failed.");
+      notify("✓ Branch " + branch + " published to " + b.remote + ".", true);
     });
+  };
 
   return (
     <div
@@ -1527,31 +1565,40 @@ function Workspace({
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: "#7a9cb0", letterSpacing: 0.5 }}>GIT</span>
-          {gitInfo && (
-            gitInfo.is_repo ? (
-              <span style={{ fontSize: 10, color: "#69d2a5", fontFamily: "ui-monospace, monospace", flex: 1 }}>
-                {gitInfo.branch || "detached HEAD"}
-                {gitInfo.remotes.length ? " · " + gitInfo.remotes.join(", ") : " · no remote"}
-              </span>
-            ) : (
-              <span style={{ fontSize: 10, color: "#4a6070", flex: 1 }}>
-                active folder is not a Git repository — clone one below
-              </span>
-            )
+          {!gitInfo ? (
+            <span style={{ fontSize: 10, color: "#4a6070", flex: 1 }}>checking repository…</span>
+          ) : gitInfo.is_repo ? (
+            <span style={{ fontSize: 10, color: "#69d2a5", fontFamily: "ui-monospace, monospace", flex: 1 }}>
+              ✓ Git repository · {gitInfo.branch || "detached HEAD"}
+              {gitInfo.remotes.length ? " · " + gitInfo.remotes.join(", ") : " · no remote"}
+            </span>
+          ) : (
+            <span style={{ fontSize: 10, color: "#4a6070", flex: 1 }}>not a Git repository</span>
           )}
+          <button
+            onClick={openSettings}
+            title="GitHub credentials (Settings → Git)"
+            style={{ background: "none", border: "none", color: "#55738a", cursor: "pointer", fontSize: 12, padding: 0 }}
+          >
+            ⚙
+          </button>
         </div>
+        {gitInfo && !gitInfo.is_repo && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <input
+              value={gitUrl}
+              onChange={(e) => setGitUrl(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !gitBusy) doClone(); }}
+              placeholder="https://github.com/user/repo.git"
+              title="Repository URL — cloned into the project directory"
+              style={{ ...inputStyle, marginBottom: 0, flex: 1, fontFamily: "ui-monospace, monospace" }}
+            />
+            <Btn small onClick={doClone} disabled={!!gitBusy} title="Clone the repository into the project directory">
+              {gitBusy === "clone" ? "Cloning…" : "Clone"}
+            </Btn>
+          </div>
+        )}
         <div style={{ display: "flex", gap: 6 }}>
-          <input
-            value={gitUrl}
-            onChange={(e) => setGitUrl(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !gitBusy) doClone(); }}
-            placeholder="https://github.com/user/repo.git"
-            title="Repository URL — cloned into the project directory"
-            style={{ ...inputStyle, marginBottom: 0, flex: 1, fontFamily: "ui-monospace, monospace" }}
-          />
-          <Btn small onClick={doClone} disabled={!!gitBusy} title="Clone the repository into the project directory">
-            {gitBusy === "clone" ? "Cloning…" : "Clone"}
-          </Btn>
           <Btn small onClick={doPull} disabled={!!gitBusy || !gitInfo?.is_repo} title="Pull from the remote">
             {gitBusy === "pull" ? "Pulling…" : "Pull"}
           </Btn>
@@ -1725,6 +1772,21 @@ function Workspace({
           done={doPublish}
         />
       )}
+      {/* GitHub credential prompt (first authenticated operation) */}
+      {authReq && (
+        <GitAuthDialog
+          cancel={() => {
+            setAuthReq(null);
+            const r = authResolvers.current.shift();
+            r?.(null);
+          }}
+          submit={(cred) => {
+            setAuthReq(null);
+            const r = authResolvers.current.shift();
+            r?.(cred);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1780,6 +1842,85 @@ function PublishBranchModal({
         <Btn onClick={close} disabled={busy}>Cancel</Btn>
         <Btn variant="primary" onClick={submit} disabled={busy || !name.trim()}>
           {busy ? "Publishing…" : "Publish Branch"}
+        </Btn>
+      </div>
+    </Modal>
+  );
+}
+
+// ─── GitHub credential prompt ──────────────────────────────────────────────
+
+function GitAuthDialog({
+  cancel,
+  submit,
+}: {
+  cancel: () => void;
+  // null = credentials were saved server-side; object = one-shot, do not save.
+  submit: (c: { username: string; token: string; save: boolean } | null) => void;
+}) {
+  const [username, setUsername] = useState("");
+  const [token, setToken] = useState("");
+  const [save, setSave] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const doSubmit = async () => {
+    if (!username.trim() || !token.trim()) return;
+    setBusy(true);
+    // When saving, persist first so the operation itself uses stored credentials.
+    if (save) {
+      try {
+        const r = await fetch("/api/git/credentials", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: username.trim(), token: token.trim() }),
+        });
+        const b = await safeJson(r);
+        if (!r.ok) {
+          setBusy(false);
+          alert(typeof b.detail === "string" ? b.detail : String(b.detail));
+          return;
+        }
+        submit(null); // stored — proceed without one-shot credentials
+        return;
+      } catch { /* fall through to one-shot */ }
+    }
+    submit({ username: username.trim(), token: token.trim(), save: false });
+  };
+  return (
+    <Modal title="GitHub Authentication Required" close={cancel}>
+      <p style={{ fontSize: 11, color: "#7a9cb0", lineHeight: 1.5, marginBottom: 12 }}>
+        This Git operation needs GitHub credentials. Use your GitHub username and a
+        personal access token (classic or fine-grained, with repository access).
+        {save && " Saved credentials are stored only on the server and never shown again."}
+      </p>
+      <label style={{ fontSize: 11, color: "#7a9cb0", display: "block", marginBottom: 4 }}>
+        GitHub Username
+      </label>
+      <input
+        autoFocus
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+        placeholder="github-username"
+        style={{ ...inputStyle, marginBottom: 10 }}
+      />
+      <label style={{ fontSize: 11, color: "#7a9cb0", display: "block", marginBottom: 4 }}>
+        GitHub Personal Access Token
+      </label>
+      <input
+        type="password"
+        value={token}
+        onChange={(e) => setToken(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && !busy) doSubmit(); }}
+        placeholder="ghp_…"
+        style={{ ...inputStyle, marginBottom: 10 }}
+      />
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#a8bfd6", marginBottom: 14, cursor: "pointer" }}>
+        <input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} />
+        Save credentials for future Git operations
+      </label>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+        <Btn onClick={cancel} disabled={busy}>Cancel</Btn>
+        <Btn variant="primary" onClick={doSubmit} disabled={busy || !username.trim() || !token.trim()}>
+          {busy ? "Continuing…" : "Continue"}
         </Btn>
       </div>
     </Modal>
@@ -1878,6 +2019,63 @@ function Providers({
     api_key: "",
     timeout_seconds: 120,
   });
+  const [gitCred, setGitCred] = useState<any>({ configured: false, username: null });
+  const [gitUser, setGitUser] = useState("");
+  const [gitToken, setGitToken] = useState("");
+  const [gitBusy, setGitBusy] = useState<null | "save" | "test" | "clear">(null);
+
+  const loadGitCred = () =>
+    fetch("/api/git/credentials")
+      .then((r) => r.json())
+      .then(setGitCred)
+      .catch(() => setGitCred({ configured: false, username: null }));
+  useEffect(loadGitCred, []);
+
+  const saveGitCred = async () => {
+    // A blank token is allowed only when credentials are already stored (keeps the old one).
+    if (!gitUser.trim() || (!gitToken.trim() && !gitCred.configured)) return;
+    setGitBusy("save");
+    try {
+      const r = await fetch("/api/git/credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: gitUser.trim(), token: gitToken.trim() }),
+      });
+      const b = await safeJson(r);
+      if (!r.ok) return alert(typeof b.detail === "string" ? b.detail : String(b.detail));
+      setGitUser("");
+      setGitToken(""); // never keep the token in frontend state
+      loadGitCred();
+    } finally {
+      setGitBusy(null);
+    }
+  };
+  const testGitCred = async () => {
+    if (!gitUser.trim() || !gitToken.trim()) return;
+    setGitBusy("test");
+    try {
+      const r = await fetch("/api/git/credentials/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: gitUser.trim(), token: gitToken.trim() }),
+      });
+      const b = await safeJson(r);
+      if (!r.ok) return alert(typeof b.detail === "string" ? b.detail : String(b.detail));
+      alert(b.message || "Credentials OK.");
+    } finally {
+      setGitBusy(null);
+    }
+  };
+  const clearGitCred = async () => {
+    if (!confirm("Remove the stored GitHub credentials?")) return;
+    setGitBusy("clear");
+    try {
+      await fetch("/api/git/credentials", { method: "DELETE" });
+      loadGitCred();
+    } finally {
+      setGitBusy(null);
+    }
+  };
   const submit = async () => {
     const r = await fetch("/api/providers", {
       method: "POST",
@@ -1990,6 +2188,66 @@ function Providers({
           </div>
         </>
       )}
+
+      {/* Git credentials */}
+      <div style={{ borderTop: "1px solid #243047", margin: "16px 0 12px" }} />
+      <div style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#c0d8e8" }}>Git</span>
+        {gitCred.configured ? (
+          <span style={{ fontSize: 10, color: "#69d2a5" }}>
+            ✓ Credentials stored for @{gitCred.username}
+          </span>
+        ) : (
+          <span style={{ fontSize: 10, color: "#4a6070" }}>no credentials stored</span>
+        )}
+      </div>
+      <p style={{ fontSize: 10, color: "#55738a", lineHeight: 1.5, marginBottom: 10 }}>
+        Used by Push and Publish Branch (and Pull when the remote requires it).
+        Stored only on the server; the token is never shown again after saving.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={{ fontSize: 11, color: "#7a9cb0" }}>GitHub Username</span>
+          <input
+            value={gitUser}
+            onChange={(e) => setGitUser(e.target.value)}
+            placeholder="github-username"
+            style={{ ...inputStyle, marginBottom: 0 }}
+          />
+        </label>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={{ fontSize: 11, color: "#7a9cb0" }}>GitHub Personal Access Token</span>
+          <input
+            type="password"
+            value={gitToken}
+            onChange={(e) => setGitToken(e.target.value)}
+            placeholder={gitCred.configured ? "•••••••• (leave blank to keep current)" : "ghp_…"}
+            style={{ ...inputStyle, marginBottom: 0 }}
+          />
+        </label>
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <Btn
+          small
+          variant="primary"
+          onClick={saveGitCred}
+          disabled={gitBusy !== null || !gitUser.trim() || (!gitToken.trim() && !gitCred.configured)}
+        >
+          {gitBusy === "save" ? "Saving…" : "Save Credentials"}
+        </Btn>
+        <Btn
+          small
+          onClick={testGitCred}
+          disabled={gitBusy !== null || !gitUser.trim() || !gitToken.trim()}
+        >
+          {gitBusy === "test" ? "Testing…" : "Test"}
+        </Btn>
+        {gitCred.configured && (
+          <Btn small variant="danger" onClick={clearGitCred} disabled={gitBusy !== null}>
+            {gitBusy === "clear" ? "Clearing…" : "Clear Credentials"}
+          </Btn>
+        )}
+      </div>
     </Modal>
   );
 }
@@ -2774,6 +3032,7 @@ export default function App() {
               file={file}
               setFile={setFile}
               notify={(msg, ok) => notify(msg, ok)}
+              openSettings={() => setShowSettings(true)}
               onClose={() => setShowWorkspace(false)}
             />
           )}
