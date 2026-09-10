@@ -2635,6 +2635,7 @@ export default function App() {
         body: JSON.stringify({ graph: graph() }),
         signal: abort.current.signal,
       });
+      
       const b = await r.json();
       if (!r.ok) throw Error(b.detail);
       setNodes((ns) =>
