@@ -126,7 +126,6 @@ def move_project(item: FileMove):
     except (OSError, ValueError) as error: raise HTTPException(400, str(error))
 
 # ── Git ──────────────────────────────────────────────────────────────────────
-
 class GitUrl(BaseModel): url: str = ""
 class GitBranch(BaseModel): name: str = ""
 class GitPushRequest(GitBranch):
